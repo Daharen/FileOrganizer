@@ -45,7 +45,13 @@ public sealed class OrganizationExecutor
             }
         }
 
-        result.Failed = result.Messages.Count(message => message.StartsWith("FAIL |", StringComparison.Ordinal));
+        result = new ExecutionResult
+        {
+            Attempted = result.Attempted,
+            Executed = result.Executed,
+            Failed = result.Messages.Count(message => message.StartsWith("FAIL |", StringComparison.Ordinal))
+        }.WithMessagesFrom(result);
+
         return result;
     }
 
@@ -88,5 +94,18 @@ public sealed class OrganizationExecutor
             Path.GetFullPath(left),
             Path.GetFullPath(right),
             StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+internal static class ExecutionResultExtensions
+{
+    public static ExecutionResult WithMessagesFrom(this ExecutionResult target, ExecutionResult source)
+    {
+        foreach (var message in source.Messages)
+        {
+            target.Messages.Add(message);
+        }
+
+        return target;
     }
 }

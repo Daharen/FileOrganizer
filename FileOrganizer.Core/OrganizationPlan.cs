@@ -36,11 +36,11 @@ public sealed class OrganizationPlan
 
 public sealed class ExecutionResult
 {
-    public int Attempted { get; set; }
+    public int Attempted { get; init; }
 
-    public int Executed { get; set; }
+    public int Executed { get; init; }
 
-    public int Failed { get; set; }
+    public int Failed { get; init; }
 
     public List<string> Messages { get; } = new();
 }
