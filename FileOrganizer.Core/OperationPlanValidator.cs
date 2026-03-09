@@ -262,11 +262,11 @@ public sealed class OperationPlanValidator
 
     private static bool IsRepositoryProtected(string path, string authorizedRoot)
     {
-        var currentDirectory = File.Exists(path)
-            ? Path.GetDirectoryName(path)
-            : path;
+        var currentDirectory = ResolveStartingDirectory(path);
 
-        while (!string.IsNullOrEmpty(currentDirectory) && IsUnderRoot(authorizedRoot, currentDirectory))
+        while (!string.IsNullOrEmpty(currentDirectory) &&
+               Directory.Exists(currentDirectory) &&
+               IsUnderRoot(authorizedRoot, currentDirectory))
         {
             if (ContainsRepositoryMarker(currentDirectory))
             {
@@ -284,28 +284,64 @@ public sealed class OperationPlanValidator
         return false;
     }
 
+    private static string? ResolveStartingDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            return Path.GetFullPath(path);
+        }
+
+        var extension = Path.GetExtension(path);
+        if (!string.IsNullOrEmpty(extension))
+        {
+            var parent = Path.GetDirectoryName(path);
+            return string.IsNullOrEmpty(parent) ? null : Path.GetFullPath(parent);
+        }
+
+        if (File.Exists(path))
+        {
+            var parent = Path.GetDirectoryName(path);
+            return string.IsNullOrEmpty(parent) ? null : Path.GetFullPath(parent);
+        }
+
+        var candidateParent = Path.GetDirectoryName(path);
+        return string.IsNullOrEmpty(candidateParent) ? null : Path.GetFullPath(candidateParent);
+    }
+
     private static bool ContainsRepositoryMarker(string directory)
     {
-        foreach (var marker in RepositoryMarkers)
+        try
         {
-            if (marker.StartsWith("*.", StringComparison.Ordinal))
+            if (!Directory.Exists(directory))
             {
-                var extension = marker[1..];
-                if (Directory.EnumerateFiles(directory, $"*{extension}", SearchOption.TopDirectoryOnly).Any())
+                return false;
+            }
+
+            foreach (var marker in RepositoryMarkers)
+            {
+                if (marker.StartsWith("*.", StringComparison.Ordinal))
+                {
+                    var extension = marker[1..];
+                    if (Directory.EnumerateFiles(directory, $"*{extension}", SearchOption.TopDirectoryOnly).Any())
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (Directory.Exists(Path.Combine(directory, marker)) || File.Exists(Path.Combine(directory, marker)))
                 {
                     return true;
                 }
-
-                continue;
             }
 
-            if (Directory.Exists(Path.Combine(directory, marker)) || File.Exists(Path.Combine(directory, marker)))
-            {
-                return true;
-            }
+            return false;
         }
-
-        return false;
+        catch
+        {
+            return false;
+        }
     }
 
     private static string? SafeGetFullPath(string path)
