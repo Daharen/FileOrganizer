@@ -6,37 +6,58 @@ namespace FileOrganizer.Core;
 
 public sealed class OrganizationExecutor
 {
-    public ExecutionResult ExecutePlan(OrganizationPlan plan)
+    public ExecutionResult ExecutePlan(ValidatedOrganizationPlan plan)
     {
         var messages = new System.Collections.Generic.List<string>();
         var executed = 0;
         var failed = 0;
 
-        foreach (var operation in plan.Operations.OrderBy(op => op.SourcePath, StringComparer.OrdinalIgnoreCase))
+        foreach (var operation in plan.ApprovedOperations.OrderBy(op => op.StableOrderIndex))
         {
             try
             {
                 if (!File.Exists(operation.SourcePath))
                 {
-                    messages.Add($"SKIP | Missing source | {operation.SourcePath}");
+                    failed++;
+                    messages.Add($"FAIL | Missing source at execution | {operation.SourcePath}");
                     continue;
                 }
 
-                Directory.CreateDirectory(operation.DestinationDirectory);
+                if (!IsUnderRoot(plan.AuthorizedRootPath, operation.SourcePath) ||
+                    !IsUnderRoot(plan.AuthorizedRootPath, operation.DestinationPath))
+                {
+                    failed++;
+                    messages.Add($"FAIL | Runtime boundary check failed | {operation.SourcePath}");
+                    continue;
+                }
 
-                var safeFileName = SanitizeFileName(operation.ProposedFileName);
-                var destinationPath = GetUniqueDestinationPath(operation.DestinationDirectory, safeFileName);
+                var destinationDirectory = Path.GetDirectoryName(operation.DestinationPath);
+                if (string.IsNullOrWhiteSpace(destinationDirectory))
+                {
+                    failed++;
+                    messages.Add($"FAIL | Invalid destination directory | {operation.DestinationPath}");
+                    continue;
+                }
 
-                if (PathsEqual(operation.SourcePath, destinationPath))
+                Directory.CreateDirectory(destinationDirectory);
+
+                if (PathsEqual(operation.SourcePath, operation.DestinationPath))
                 {
                     messages.Add($"SKIP | Already in destination | {operation.SourcePath}");
                     continue;
                 }
 
-                File.Move(operation.SourcePath, destinationPath);
+                if (File.Exists(operation.DestinationPath))
+                {
+                    failed++;
+                    messages.Add($"FAIL | Destination collision at execution | {operation.DestinationPath}");
+                    continue;
+                }
+
+                File.Move(operation.SourcePath, operation.DestinationPath);
 
                 executed++;
-                messages.Add($"MOVE | {operation.SourcePath} -> {destinationPath}");
+                messages.Add($"MOVE | {operation.SourcePath} -> {operation.DestinationPath}");
             }
             catch (Exception ex)
             {
@@ -47,7 +68,9 @@ public sealed class OrganizationExecutor
 
         var result = new ExecutionResult
         {
-            Attempted = plan.Operations.Count,
+            Approved = plan.ApprovedOperations.Count,
+            Rejected = plan.RejectedOperations.Count,
+            Attempted = plan.ApprovedOperations.Count,
             Executed = executed,
             Failed = failed
         };
@@ -60,37 +83,16 @@ public sealed class OrganizationExecutor
         return result;
     }
 
-    private static string SanitizeFileName(string fileName)
+    private static bool IsUnderRoot(string rootPath, string candidatePath)
     {
-        var invalidChars = Path.GetInvalidFileNameChars();
-        var sanitized = string.Concat(fileName.Select(ch => invalidChars.Contains(ch) ? '_' : ch));
-        return string.IsNullOrWhiteSpace(sanitized) ? "unnamed_file" : sanitized;
-    }
+        var relative = Path.GetRelativePath(rootPath, candidatePath);
 
-    private static string GetUniqueDestinationPath(string destinationDirectory, string proposedFileName)
-    {
-        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(proposedFileName);
-        var extension = Path.GetExtension(proposedFileName);
-
-        var candidatePath = Path.Combine(destinationDirectory, proposedFileName);
-        if (!File.Exists(candidatePath))
+        if (relative == ".")
         {
-            return candidatePath;
+            return true;
         }
 
-        var counter = 1;
-        while (true)
-        {
-            var candidateFileName = $"{fileNameWithoutExtension} ({counter}){extension}";
-            candidatePath = Path.Combine(destinationDirectory, candidateFileName);
-
-            if (!File.Exists(candidatePath))
-            {
-                return candidatePath;
-            }
-
-            counter++;
-        }
+        return !relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative);
     }
 
     private static bool PathsEqual(string left, string right)
