@@ -1,22 +1,34 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="FileOrganizer.GUI.MainWindow"
+        Width="1000"
+        Height="700"
         Title="File Organizer">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button x:Name="SelectFolderButton" Content="Select Folder" Width="130" />
+      <Button x:Name="PreviewButton" Content="Preview Plan" Width="130" />
+      <Button x:Name="ExecuteButton" Content="Execute Plan" Width="130" />
+    </StackPanel>
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="10">
+    <TextBlock x:Name="StatusTextBlock"
+               Grid.Row="1"
+               Margin="0,12,0,12"
+               Text="Select a folder to begin." />
 
-        <!-- Top Row: Folder Selection -->
-        <Button Grid.Row="0" Name="SelectFolderButton" Content="Select Folder to Organize" HorizontalAlignment="Stretch" />
+    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="12">
+      <GroupBox Header="Scanned Files" Grid.Column="0">
+        <ListBox x:Name="FileListBox" />
+      </GroupBox>
 
-        <!-- Middle Row: File List -->
-        <ListBox Grid.Row="1" Name="FileListBox" Margin="0,10,0,10" />
-
-        <!-- Bottom Row: Organize Button -->
-        <Button Grid.Row="2" Name="OrganizeButton" Content="Organize Files" HorizontalAlignment="Stretch" />
-
+      <GroupBox Header="Planned Operations / Results" Grid.Column="1">
+        <ListBox x:Name="PlanListBox" />
+      </GroupBox>
     </Grid>
 
+    <TextBlock x:Name="SummaryTextBlock"
+               Grid.Row="3"
+               Margin="0,12,0,0"
+               Text="Ready." />
+  </Grid>
 </Window>
