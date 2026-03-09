@@ -8,10 +8,9 @@ public sealed class OrganizationExecutor
 {
     public ExecutionResult ExecutePlan(OrganizationPlan plan)
     {
-        var result = new ExecutionResult
-        {
-            Attempted = plan.Operations.Count
-        };
+        var messages = new System.Collections.Generic.List<string>();
+        var executed = 0;
+        var failed = 0;
 
         foreach (var operation in plan.Operations.OrderBy(op => op.SourcePath, StringComparer.OrdinalIgnoreCase))
         {
@@ -19,7 +18,7 @@ public sealed class OrganizationExecutor
             {
                 if (!File.Exists(operation.SourcePath))
                 {
-                    result.Messages.Add($"SKIP | Missing source | {operation.SourcePath}");
+                    messages.Add($"SKIP | Missing source | {operation.SourcePath}");
                     continue;
                 }
 
@@ -30,27 +29,33 @@ public sealed class OrganizationExecutor
 
                 if (PathsEqual(operation.SourcePath, destinationPath))
                 {
-                    result.Messages.Add($"SKIP | Already in destination | {operation.SourcePath}");
+                    messages.Add($"SKIP | Already in destination | {operation.SourcePath}");
                     continue;
                 }
 
                 File.Move(operation.SourcePath, destinationPath);
 
-                result.Executed++;
-                result.Messages.Add($"MOVE | {operation.SourcePath} -> {destinationPath}");
+                executed++;
+                messages.Add($"MOVE | {operation.SourcePath} -> {destinationPath}");
             }
             catch (Exception ex)
             {
-                result.Messages.Add($"FAIL | {operation.SourcePath} | {ex.Message}");
+                failed++;
+                messages.Add($"FAIL | {operation.SourcePath} | {ex.Message}");
             }
         }
 
-        result = new ExecutionResult
+        var result = new ExecutionResult
         {
-            Attempted = result.Attempted,
-            Executed = result.Executed,
-            Failed = result.Messages.Count(message => message.StartsWith("FAIL |", StringComparison.Ordinal))
-        }.WithMessagesFrom(result);
+            Attempted = plan.Operations.Count,
+            Executed = executed,
+            Failed = failed
+        };
+
+        foreach (var message in messages)
+        {
+            result.Messages.Add(message);
+        }
 
         return result;
     }
@@ -94,18 +99,5 @@ public sealed class OrganizationExecutor
             Path.GetFullPath(left),
             Path.GetFullPath(right),
             StringComparison.OrdinalIgnoreCase);
-    }
-}
-
-internal static class ExecutionResultExtensions
-{
-    public static ExecutionResult WithMessagesFrom(this ExecutionResult target, ExecutionResult source)
-    {
-        foreach (var message in source.Messages)
-        {
-            target.Messages.Add(message);
-        }
-
-        return target;
     }
 }
