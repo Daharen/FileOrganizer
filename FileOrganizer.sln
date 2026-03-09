@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileOrganizer.GUI", "FileOr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileOrganizer.Core", "FileOrganizer.Core\FileOrganizer.Core.csproj", "{8337C3C6-7A9C-4F70-AFD0-95CA0B385970}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileOrganizer.Core.Tests", "FileOrganizer.Core.Tests\FileOrganizer.Core.Tests.csproj", "{A7EFA8C9-0FB5-4F67-994D-AB36DDF8BE60}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{8337C3C6-7A9C-4F70-AFD0-95CA0B385970}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8337C3C6-7A9C-4F70-AFD0-95CA0B385970}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8337C3C6-7A9C-4F70-AFD0-95CA0B385970}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A7EFA8C9-0FB5-4F67-994D-AB36DDF8BE60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A7EFA8C9-0FB5-4F67-994D-AB36DDF8BE60}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A7EFA8C9-0FB5-4F67-994D-AB36DDF8BE60}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A7EFA8C9-0FB5-4F67-994D-AB36DDF8BE60}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

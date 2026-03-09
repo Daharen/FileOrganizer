@@ -22,6 +22,14 @@ public sealed class ValidatedOperation
 
     public string DestinationPath { get; init; } = string.Empty;
 
+    public string OriginalProposedDestinationPath { get; init; } = string.Empty;
+
+    public string ResolvedDestinationPath { get; init; } = string.Empty;
+
+    public bool CollisionResolutionApplied { get; init; }
+
+    public string? CollisionResolutionReason { get; init; }
+
     public string ProposedFileName { get; init; } = string.Empty;
 
     public double ConfidenceScore { get; init; }
@@ -84,12 +92,24 @@ public sealed class OperationPlanValidator
         "go.mod"
     };
 
+    private readonly ICollisionResolver _collisionResolver;
+
+    public OperationPlanValidator()
+        : this(new DeterministicCollisionResolver())
+    {
+    }
+
+    public OperationPlanValidator(ICollisionResolver collisionResolver)
+    {
+        _collisionResolver = collisionResolver;
+    }
+
     public ValidatedOrganizationPlan Validate(string authorizedRootPath, OrganizationPlan plan)
     {
         var normalizedRoot = Path.GetFullPath(authorizedRootPath);
         var approved = new List<ValidatedOperation>();
         var rejected = new List<ValidationFailure>();
-        var destinationsSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var reservedDestinations = new HashSet<string>(PathComparisonPolicy.PathComparer);
 
         foreach (var indexedOperation in plan.Operations.Select((operation, index) => (operation, index)))
         {
@@ -141,41 +161,41 @@ public sealed class OperationPlanValidator
                 continue;
             }
 
-            var destinationPath = SafeGetFullPath(Path.Combine(destinationDirectory, normalizedFileName));
-            if (destinationPath is null)
+            var proposedDestinationPath = SafeGetFullPath(Path.Combine(destinationDirectory, normalizedFileName));
+            if (proposedDestinationPath is null)
             {
                 rejected.Add(CreateFailure(operation, null, ValidationFailureCode.InvalidDestination, "Destination path could not be resolved."));
                 continue;
             }
 
-            if (!IsUnderRoot(normalizedRoot, destinationPath))
+            if (!IsAllowedDestination(normalizedRoot, proposedDestinationPath, operation, rejected))
             {
-                rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.DestinationOutsideAuthorizedRoot, "Destination is outside the authorized root."));
                 continue;
             }
 
-            if (IsHiddenPath(destinationPath, normalizedRoot))
+            ReserveExistingCollisionPaths(destinationDirectory, reservedDestinations);
+
+            var resolvedDestinationPath = _collisionResolver.ResolveDestinationPath(
+                proposedDestinationPath,
+                reservedDestinations,
+                PathComparisonPolicy.PathComparison);
+
+            var normalizedResolvedDestinationPath = SafeGetFullPath(resolvedDestinationPath);
+            if (normalizedResolvedDestinationPath is null)
             {
-                rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.HiddenPathBlocked, "Hidden destination paths are blocked by default."));
+                rejected.Add(CreateFailure(operation, proposedDestinationPath, ValidationFailureCode.InvalidDestination, "Resolved destination path could not be resolved."));
                 continue;
             }
 
-            if (IsRepositoryProtected(destinationPath, normalizedRoot))
+            if (!IsAllowedDestination(normalizedRoot, normalizedResolvedDestinationPath, operation, rejected))
             {
-                rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.RepositoryProtected, "Destination is inside a detected repository boundary."));
                 continue;
             }
 
-            var destinationExtension = Path.GetExtension(destinationPath);
-            if (ProtectedExecutableExtensions.Contains(destinationExtension))
+            var resolvedFileName = Path.GetFileName(normalizedResolvedDestinationPath);
+            if (!IsLegalResolvedFileName(resolvedFileName))
             {
-                rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.ExecutableProtected, "Protected executable targets are blocked."));
-                continue;
-            }
-
-            if (!destinationsSeen.Add(destinationPath) || File.Exists(destinationPath))
-            {
-                rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.CollisionDetected, "Destination collision detected."));
+                rejected.Add(CreateFailure(operation, normalizedResolvedDestinationPath, ValidationFailureCode.InvalidFileName, "Resolved file name is not legal."));
                 continue;
             }
 
@@ -183,12 +203,20 @@ public sealed class OperationPlanValidator
             {
                 OperationId = operation.OperationId,
                 SourcePath = sourcePath,
-                DestinationPath = destinationPath,
+                DestinationPath = normalizedResolvedDestinationPath,
+                OriginalProposedDestinationPath = proposedDestinationPath,
+                ResolvedDestinationPath = normalizedResolvedDestinationPath,
+                CollisionResolutionApplied = !PathsEqual(proposedDestinationPath, normalizedResolvedDestinationPath),
+                CollisionResolutionReason = !PathsEqual(proposedDestinationPath, normalizedResolvedDestinationPath)
+                    ? "Destination collision resolved by numeric suffix."
+                    : null,
                 ProposedFileName = normalizedFileName,
                 ConfidenceScore = operation.ConfidenceScore,
                 ReasoningSummary = operation.ReasoningSummary,
                 StableOrderIndex = stableOrderIndex
             });
+
+            reservedDestinations.Add(normalizedResolvedDestinationPath);
         }
 
         return new ValidatedOrganizationPlan
@@ -197,6 +225,67 @@ public sealed class OperationPlanValidator
             ApprovedOperations = approved,
             RejectedOperations = rejected
         };
+    }
+
+    private static void ReserveExistingCollisionPaths(string destinationDirectory, HashSet<string> reservedDestinations)
+    {
+        if (!Directory.Exists(destinationDirectory))
+        {
+            return;
+        }
+
+        foreach (var existingPath in Directory.EnumerateFiles(destinationDirectory, "*", SearchOption.TopDirectoryOnly))
+        {
+            var normalized = SafeGetFullPath(existingPath);
+            if (normalized is not null)
+            {
+                reservedDestinations.Add(normalized);
+            }
+        }
+    }
+
+    private static bool IsAllowedDestination(
+        string normalizedRoot,
+        string destinationPath,
+        FileMoveOperation operation,
+        List<ValidationFailure> rejected)
+    {
+        if (!IsUnderRoot(normalizedRoot, destinationPath))
+        {
+            rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.DestinationOutsideAuthorizedRoot, "Destination is outside the authorized root."));
+            return false;
+        }
+
+        if (IsHiddenPath(destinationPath, normalizedRoot))
+        {
+            rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.HiddenPathBlocked, "Hidden destination paths are blocked by default."));
+            return false;
+        }
+
+        if (IsRepositoryProtected(destinationPath, normalizedRoot))
+        {
+            rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.RepositoryProtected, "Destination is inside a detected repository boundary."));
+            return false;
+        }
+
+        var destinationExtension = Path.GetExtension(destinationPath);
+        if (ProtectedExecutableExtensions.Contains(destinationExtension))
+        {
+            rejected.Add(CreateFailure(operation, destinationPath, ValidationFailureCode.ExecutableProtected, "Protected executable targets are blocked."));
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsLegalResolvedFileName(string resolvedFileName)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedFileName))
+        {
+            return false;
+        }
+
+        return string.Equals(NormalizeFileName(resolvedFileName), resolvedFileName, StringComparison.Ordinal);
     }
 
     private static ValidationFailure CreateFailure(FileMoveOperation operation, string? destinationPath, ValidationFailureCode code, string message)
@@ -220,6 +309,11 @@ public sealed class OperationPlanValidator
         if (string.IsNullOrWhiteSpace(sanitized))
         {
             return string.Empty;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            sanitized = sanitized.TrimEnd('.', ' ');
         }
 
         var maxLength = 120;
@@ -361,6 +455,6 @@ public sealed class OperationPlanValidator
         return string.Equals(
             Path.GetFullPath(left),
             Path.GetFullPath(right),
-            StringComparison.OrdinalIgnoreCase);
+            PathComparisonPolicy.PathComparison);
     }
 }
