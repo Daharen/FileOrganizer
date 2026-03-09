@@ -51,11 +51,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        var result = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Select Folder to Organize",
-            AllowMultiple = false
-        });
+        var result = await topLevel.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
+            {
+                Title = "Select Folder to Organize",
+                AllowMultiple = false
+            });
 
         if (result.Count < 1)
         {
@@ -118,7 +119,10 @@ public partial class MainWindow : Window
             planListBox.ItemsSource = items;
         }
 
-        SetSummary($"Plan ready. {_currentPlan.Operations.Count} moves. {_currentPlan.SkippedFiles.Count} skipped.");
+        SetSummary(
+            $"Plan ready.{Environment.NewLine}" +
+            $"{_currentPlan.Operations.Count} moves.{Environment.NewLine}" +
+            $"{_currentPlan.SkippedFiles.Count} skipped.");
     }
 
     private void ExecuteButton_Click(object? sender, RoutedEventArgs e)
@@ -144,6 +148,7 @@ public partial class MainWindow : Window
         }
 
         _currentFiles = _scanner.ScanDirectory(_currentFolder.Path.LocalPath);
+
         var fileListBox = this.FindControl<ListBox>("FileListBox");
         if (fileListBox is not null)
         {
@@ -153,7 +158,8 @@ public partial class MainWindow : Window
         }
 
         SetSummary(
-            $"Execution complete. Attempted {executionResult.Attempted}. " +
+            $"Execution complete.{Environment.NewLine}" +
+            $"Attempted {executionResult.Attempted}. " +
             $"Executed {executionResult.Executed}. Failed {executionResult.Failed}. " +
             $"Remaining visible files {_currentFiles.Count}.");
     }

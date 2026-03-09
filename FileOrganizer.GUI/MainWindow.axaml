@@ -3,32 +3,68 @@
         x:Class="FileOrganizer.GUI.MainWindow"
         Width="1000"
         Height="700"
+        MinWidth="900"
+        MinHeight="600"
         Title="File Organizer">
+
   <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
-    <StackPanel Orientation="Horizontal" Spacing="8">
-      <Button x:Name="SelectFolderButton" Content="Select Folder" Width="130" />
-      <Button x:Name="PreviewButton" Content="Preview Plan" Width="130" />
-      <Button x:Name="ExecuteButton" Content="Execute Plan" Width="130" />
+    <StackPanel Grid.Row="0"
+                Orientation="Horizontal"
+                Spacing="8">
+      <Button x:Name="SelectFolderButton"
+              Width="130"
+              Content="Select Folder" />
+      <Button x:Name="PreviewButton"
+              Width="130"
+              Content="Preview Plan" />
+      <Button x:Name="ExecuteButton"
+              Width="130"
+              Content="Execute Plan" />
     </StackPanel>
 
     <TextBlock x:Name="StatusTextBlock"
                Grid.Row="1"
                Margin="0,12,0,12"
-               Text="Select a folder to begin." />
+               Text="Select a folder to begin."
+               TextWrapping="Wrap" />
 
-    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="12">
-      <GroupBox Header="Scanned Files" Grid.Column="0">
-        <ListBox x:Name="FileListBox" />
-      </GroupBox>
+    <Grid Grid.Row="2"
+          ColumnDefinitions="*,*"
+          ColumnSpacing="12">
 
-      <GroupBox Header="Planned Operations / Results" Grid.Column="1">
-        <ListBox x:Name="PlanListBox" />
-      </GroupBox>
+      <Border Grid.Column="0"
+              Padding="12"
+              BorderBrush="#666666"
+              BorderThickness="1"
+              CornerRadius="6">
+        <Grid RowDefinitions="Auto,*" RowSpacing="8">
+          <TextBlock Grid.Row="0"
+                     FontWeight="Bold"
+                     Text="Scanned Files" />
+          <ListBox x:Name="FileListBox"
+                   Grid.Row="1" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="1"
+              Padding="12"
+              BorderBrush="#666666"
+              BorderThickness="1"
+              CornerRadius="6">
+        <Grid RowDefinitions="Auto,*" RowSpacing="8">
+          <TextBlock Grid.Row="0"
+                     FontWeight="Bold"
+                     Text="Planned Operations / Results" />
+          <ListBox x:Name="PlanListBox"
+                   Grid.Row="1" />
+        </Grid>
+      </Border>
     </Grid>
 
     <TextBlock x:Name="SummaryTextBlock"
                Grid.Row="3"
                Margin="0,12,0,0"
-               Text="Ready." />
+               Text="Ready."
+               TextWrapping="Wrap" />
   </Grid>
 </Window>
