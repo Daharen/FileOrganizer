@@ -257,7 +257,7 @@ public sealed class OperationPlanValidator
         var relative = Path.GetRelativePath(authorizedRoot, path);
         var segments = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
 
-        return segments.Any(segment => segment.StartsWith('.', StringComparison.Ordinal));
+        return segments.Any(segment => segment.StartsWith(".", StringComparison.Ordinal));
     }
 
     private static bool IsRepositoryProtected(string path, string authorizedRoot)
