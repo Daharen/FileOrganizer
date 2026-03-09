@@ -115,7 +115,9 @@ public partial class MainWindow : Window
             var items = new List<string>();
 
             items.AddRange(_currentValidatedPlan.ApprovedOperations.Select(op =>
-                $"APPROVED | {Path.GetFileName(op.SourcePath)} -> {op.DestinationPath} | confidence={op.ConfidenceScore:0.00}"));
+                op.CollisionResolutionApplied
+                    ? $"APPROVED | {Path.GetFileName(op.SourcePath)} -> {op.OriginalProposedDestinationPath} | Resolved to {op.DestinationPath} due to collision | confidence={op.ConfidenceScore:0.00}"
+                    : $"APPROVED | {Path.GetFileName(op.SourcePath)} -> {op.DestinationPath} | confidence={op.ConfidenceScore:0.00}"));
 
             items.AddRange(_currentValidatedPlan.RejectedOperations.Select(rej =>
                 $"REJECTED | {Path.GetFileName(rej.SourcePath)} | {rej.Code} | {rej.Message}"));
