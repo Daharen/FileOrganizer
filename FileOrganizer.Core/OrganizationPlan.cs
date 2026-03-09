@@ -36,6 +36,10 @@ public sealed class OrganizationPlan
 
 public sealed class ExecutionResult
 {
+    public int Approved { get; init; }
+
+    public int Rejected { get; init; }
+
     public int Attempted { get; init; }
 
     public int Executed { get; init; }

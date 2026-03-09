@@ -13,11 +13,13 @@ public partial class MainWindow : Window
 {
     private readonly DirectoryScanner _scanner = new();
     private readonly DeterministicOrganizationPlanner _planner = new();
+    private readonly OperationPlanValidator _validator = new();
     private readonly OrganizationExecutor _executor = new();
 
     private IStorageFolder? _currentFolder;
     private List<ScannedFile> _currentFiles = new();
     private OrganizationPlan? _currentPlan;
+    private ValidatedOrganizationPlan? _currentValidatedPlan;
 
     public MainWindow()
     {
@@ -66,6 +68,7 @@ public partial class MainWindow : Window
         _currentFolder = result[0];
         _currentFiles = _scanner.ScanDirectory(_currentFolder.Path.LocalPath);
         _currentPlan = null;
+        _currentValidatedPlan = null;
 
         var fileListBox = this.FindControl<ListBox>("FileListBox");
         var planListBox = this.FindControl<ListBox>("PlanListBox");
@@ -104,14 +107,18 @@ public partial class MainWindow : Window
         }
 
         _currentPlan = _planner.GetOrganizationPlan(_currentFolder.Path.LocalPath, _currentFiles);
+        _currentValidatedPlan = _validator.Validate(_currentFolder.Path.LocalPath, _currentPlan);
 
         var planListBox = this.FindControl<ListBox>("PlanListBox");
         if (planListBox is not null)
         {
             var items = new List<string>();
 
-            items.AddRange(_currentPlan.Operations.Select(operation =>
-                $"MOVE | {Path.GetFileName(operation.SourcePath)} -> {operation.Category}\\{operation.ProposedFileName} | confidence={operation.ConfidenceScore:0.00} | {operation.ReasoningSummary}"));
+            items.AddRange(_currentValidatedPlan.ApprovedOperations.Select(op =>
+                $"APPROVED | {Path.GetFileName(op.SourcePath)} -> {op.DestinationPath} | confidence={op.ConfidenceScore:0.00}"));
+
+            items.AddRange(_currentValidatedPlan.RejectedOperations.Select(rej =>
+                $"REJECTED | {Path.GetFileName(rej.SourcePath)} | {rej.Code} | {rej.Message}"));
 
             items.AddRange(_currentPlan.SkippedFiles.Select(skip =>
                 $"SKIP | {Path.GetFileName(skip.SourcePath)} | {skip.Reason}"));
@@ -120,9 +127,10 @@ public partial class MainWindow : Window
         }
 
         SetSummary(
-            $"Plan ready.{Environment.NewLine}" +
-            $"{_currentPlan.Operations.Count} moves.{Environment.NewLine}" +
-            $"{_currentPlan.SkippedFiles.Count} skipped.");
+            $"Plan validated.{Environment.NewLine}" +
+            $"Approved {_currentValidatedPlan.ApprovedOperations.Count}.{Environment.NewLine}" +
+            $"Rejected {_currentValidatedPlan.RejectedOperations.Count}.{Environment.NewLine}" +
+            $"Skipped by planner {_currentPlan.SkippedFiles.Count}.");
     }
 
     private void ExecuteButton_Click(object? sender, RoutedEventArgs e)
@@ -133,13 +141,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_currentPlan is null)
+        if (_currentValidatedPlan is null)
         {
-            SetSummary("Preview the plan before execution.");
+            SetSummary("Preview and validation must complete before execution.");
             return;
         }
 
-        var executionResult = _executor.ExecutePlan(_currentPlan);
+        var executionResult = _executor.ExecutePlan(_currentValidatedPlan);
 
         var planListBox = this.FindControl<ListBox>("PlanListBox");
         if (planListBox is not null)
@@ -159,8 +167,8 @@ public partial class MainWindow : Window
 
         SetSummary(
             $"Execution complete.{Environment.NewLine}" +
-            $"Attempted {executionResult.Attempted}. " +
-            $"Executed {executionResult.Executed}. Failed {executionResult.Failed}. " +
+            $"Approved {executionResult.Approved}. Rejected {executionResult.Rejected}.{Environment.NewLine}" +
+            $"Attempted {executionResult.Attempted}. Executed {executionResult.Executed}. Failed {executionResult.Failed}.{Environment.NewLine}" +
             $"Remaining visible files {_currentFiles.Count}.");
     }
 
