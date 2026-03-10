@@ -46,5 +46,15 @@ public sealed class ExecutionResult
 
     public int Failed { get; init; }
 
+    public int Skipped { get; init; }
+
+    public int JournalAppendFailures { get; init; }
+
+    public int JournalEntriesAppended { get; init; }
+
+    public string RunId { get; init; } = string.Empty;
+
+    public string JournalPath { get; init; } = string.Empty;
+
     public List<string> Messages { get; } = new();
 }

@@ -36,6 +36,8 @@ public sealed class ValidatedOperation
 
     public string ReasoningSummary { get; init; } = string.Empty;
 
+    public string PlanningStage { get; init; } = "Validated";
+
     public int StableOrderIndex { get; init; }
 }
 
@@ -213,6 +215,7 @@ public sealed class OperationPlanValidator
                 ProposedFileName = normalizedFileName,
                 ConfidenceScore = operation.ConfidenceScore,
                 ReasoningSummary = operation.ReasoningSummary,
+                PlanningStage = "Validated",
                 StableOrderIndex = stableOrderIndex
             });
 
