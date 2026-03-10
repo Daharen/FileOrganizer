@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -6,63 +7,117 @@ namespace FileOrganizer.Core;
 
 public sealed class OrganizationExecutor
 {
+    private readonly IExecutionJournal _executionJournal;
+    private readonly string _journalPath;
+
+    public OrganizationExecutor(IExecutionJournal executionJournal, string journalPath)
+    {
+        _executionJournal = executionJournal;
+        _journalPath = journalPath;
+    }
+
     public ExecutionResult ExecutePlan(ValidatedOrganizationPlan plan)
     {
-        var messages = new System.Collections.Generic.List<string>();
+        var messages = new List<string>();
         var executed = 0;
         var failed = 0;
+        var skipped = 0;
+        var journalAppendFailures = 0;
+        var journalEntriesAppended = 0;
+        var runId = Guid.NewGuid().ToString("N");
 
         foreach (var operation in plan.ApprovedOperations.OrderBy(op => op.StableOrderIndex))
         {
+            string executionStatus;
+            string? failureReason = null;
+
             try
             {
                 if (!File.Exists(operation.SourcePath))
                 {
-                    failed++;
-                    messages.Add($"FAIL | Missing source at execution | {operation.SourcePath}");
-                    continue;
+                    executionStatus = "Skipped";
+                    skipped++;
+                    failureReason = "Missing source at execution.";
+                    messages.Add($"SKIP | Missing source at execution | {operation.SourcePath}");
                 }
-
-                if (!IsUnderRoot(plan.AuthorizedRootPath, operation.SourcePath) ||
-                    !IsUnderRoot(plan.AuthorizedRootPath, operation.DestinationPath))
+                else if (!IsUnderRoot(plan.AuthorizedRootPath, operation.SourcePath) ||
+                         !IsUnderRoot(plan.AuthorizedRootPath, operation.DestinationPath))
                 {
-                    failed++;
-                    messages.Add($"FAIL | Runtime boundary check failed | {operation.SourcePath}");
-                    continue;
+                    executionStatus = "Skipped";
+                    skipped++;
+                    failureReason = "Runtime boundary check failed.";
+                    messages.Add($"SKIP | Runtime boundary check failed | {operation.SourcePath}");
                 }
-
-                var destinationDirectory = Path.GetDirectoryName(operation.DestinationPath);
-                if (string.IsNullOrWhiteSpace(destinationDirectory))
+                else
                 {
-                    failed++;
-                    messages.Add($"FAIL | Invalid destination directory | {operation.DestinationPath}");
-                    continue;
+                    var destinationDirectory = Path.GetDirectoryName(operation.DestinationPath);
+                    if (string.IsNullOrWhiteSpace(destinationDirectory))
+                    {
+                        executionStatus = "Failed";
+                        failed++;
+                        failureReason = "Invalid destination directory.";
+                        messages.Add($"FAIL | Invalid destination directory | {operation.DestinationPath}");
+                    }
+                    else
+                    {
+                        Directory.CreateDirectory(destinationDirectory);
+
+                        if (PathsEqual(operation.SourcePath, operation.DestinationPath))
+                        {
+                            executionStatus = "Skipped";
+                            skipped++;
+                            failureReason = "Already in destination.";
+                            messages.Add($"SKIP | Already in destination | {operation.SourcePath}");
+                        }
+                        else if (File.Exists(operation.DestinationPath))
+                        {
+                            executionStatus = "Skipped";
+                            skipped++;
+                            failureReason = "Destination collision at execution.";
+                            messages.Add($"SKIP | Destination collision at execution | {operation.DestinationPath}");
+                        }
+                        else
+                        {
+                            File.Move(operation.SourcePath, operation.DestinationPath);
+
+                            executionStatus = "Succeeded";
+                            executed++;
+                            messages.Add($"MOVE | {operation.SourcePath} -> {operation.DestinationPath}");
+                        }
+                    }
                 }
-
-                Directory.CreateDirectory(destinationDirectory);
-
-                if (PathsEqual(operation.SourcePath, operation.DestinationPath))
-                {
-                    messages.Add($"SKIP | Already in destination | {operation.SourcePath}");
-                    continue;
-                }
-
-                if (File.Exists(operation.DestinationPath))
-                {
-                    failed++;
-                    messages.Add($"FAIL | Destination collision at execution | {operation.DestinationPath}");
-                    continue;
-                }
-
-                File.Move(operation.SourcePath, operation.DestinationPath);
-
-                executed++;
-                messages.Add($"MOVE | {operation.SourcePath} -> {operation.DestinationPath}");
             }
             catch (Exception ex)
             {
+                executionStatus = "Failed";
                 failed++;
+                failureReason = ex.Message;
                 messages.Add($"FAIL | {operation.SourcePath} | {ex.Message}");
+            }
+
+            try
+            {
+                var entry = new ExecutionJournalEntry(
+                    RunId: runId,
+                    OperationId: operation.OperationId,
+                    OriginalPath: operation.SourcePath,
+                    ProposedDestinationPath: operation.OriginalProposedDestinationPath,
+                    ResolvedDestinationPath: operation.ResolvedDestinationPath,
+                    DestinationPath: operation.DestinationPath,
+                    OperationType: OperationTypeClassifier.Classify(operation.SourcePath, operation.DestinationPath),
+                    ExecutionStatus: executionStatus,
+                    TimestampUtc: DateTimeOffset.UtcNow,
+                    ClassificationConfidence: operation.ConfidenceScore,
+                    PlanningStage: operation.PlanningStage,
+                    FailureReason: failureReason);
+
+                _executionJournal.AppendAsync(entry).GetAwaiter().GetResult();
+                journalEntriesAppended++;
+            }
+            catch (Exception ex)
+            {
+                journalAppendFailures++;
+                messages.Add($"JOURNAL_FAIL | {operation.OperationId} | {ex.Message}");
             }
         }
 
@@ -72,7 +127,12 @@ public sealed class OrganizationExecutor
             Rejected = plan.RejectedOperations.Count,
             Attempted = plan.ApprovedOperations.Count,
             Executed = executed,
-            Failed = failed
+            Failed = failed,
+            Skipped = skipped,
+            JournalAppendFailures = journalAppendFailures,
+            JournalEntriesAppended = journalEntriesAppended,
+            RunId = runId,
+            JournalPath = _journalPath
         };
 
         foreach (var message in messages)
@@ -100,6 +160,6 @@ public sealed class OrganizationExecutor
         return string.Equals(
             Path.GetFullPath(left),
             Path.GetFullPath(right),
-            StringComparison.OrdinalIgnoreCase);
+            PathComparisonPolicy.PathComparison);
     }
 }

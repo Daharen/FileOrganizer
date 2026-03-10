@@ -14,7 +14,7 @@ public partial class MainWindow : Window
     private readonly DirectoryScanner _scanner = new();
     private readonly DeterministicOrganizationPlanner _planner = new();
     private readonly OperationPlanValidator _validator = new();
-    private readonly OrganizationExecutor _executor = new();
+    private readonly OrganizationExecutor _executor;
 
     private IStorageFolder? _currentFolder;
     private List<ScannedFile> _currentFiles = new();
@@ -24,6 +24,13 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        var journalDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "FileOrganizer");
+        var journalPath = Path.Combine(journalDirectory, "execution-journal.ndjson");
+        var journal = new FileExecutionJournal(journalPath);
+        _executor = new OrganizationExecutor(journal, journalPath);
 
         var selectFolderButton = this.FindControl<Button>("SelectFolderButton");
         var previewButton = this.FindControl<Button>("PreviewButton");
@@ -116,8 +123,8 @@ public partial class MainWindow : Window
 
             items.AddRange(_currentValidatedPlan.ApprovedOperations.Select(op =>
                 op.CollisionResolutionApplied
-                    ? $"APPROVED | {Path.GetFileName(op.SourcePath)} -> {op.OriginalProposedDestinationPath} | Resolved to {op.DestinationPath} due to collision | confidence={op.ConfidenceScore:0.00}"
-                    : $"APPROVED | {Path.GetFileName(op.SourcePath)} -> {op.DestinationPath} | confidence={op.ConfidenceScore:0.00}"));
+                    ? $"APPROVED | id={op.OperationId} | {Path.GetFileName(op.SourcePath)} -> {op.OriginalProposedDestinationPath} | Resolved to {op.ResolvedDestinationPath} due to collision | confidence={op.ConfidenceScore:0.00}"
+                    : $"APPROVED | id={op.OperationId} | {Path.GetFileName(op.SourcePath)} -> {op.ResolvedDestinationPath} | confidence={op.ConfidenceScore:0.00}"));
 
             items.AddRange(_currentValidatedPlan.RejectedOperations.Select(rej =>
                 $"REJECTED | {Path.GetFileName(rej.SourcePath)} | {rej.Code} | {rej.Message}"));
@@ -170,7 +177,10 @@ public partial class MainWindow : Window
         SetSummary(
             $"Execution complete.{Environment.NewLine}" +
             $"Approved {executionResult.Approved}. Rejected {executionResult.Rejected}.{Environment.NewLine}" +
-            $"Attempted {executionResult.Attempted}. Executed {executionResult.Executed}. Failed {executionResult.Failed}.{Environment.NewLine}" +
+            $"Attempted {executionResult.Attempted}. Executed {executionResult.Executed}. Failed {executionResult.Failed}. Skipped {executionResult.Skipped}.{Environment.NewLine}" +
+            $"Journal run id {executionResult.RunId}.{Environment.NewLine}" +
+            $"Journal path {executionResult.JournalPath}.{Environment.NewLine}" +
+            $"Journal entries appended {executionResult.JournalEntriesAppended}. Journal append failures {executionResult.JournalAppendFailures}.{Environment.NewLine}" +
             $"Remaining visible files {_currentFiles.Count}.");
     }
 
