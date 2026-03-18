@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using FileOrganizer.Core.Classification;
 
 namespace FileOrganizer.Core;
 
@@ -122,12 +123,8 @@ public sealed class DirectoryScanner
 
     private static bool IsKnownCategoryFolder(string folderName)
     {
-        return folderName.Equals("Images", StringComparison.OrdinalIgnoreCase)
-            || folderName.Equals("Documents", StringComparison.OrdinalIgnoreCase)
-            || folderName.Equals("Videos", StringComparison.OrdinalIgnoreCase)
-            || folderName.Equals("Audio", StringComparison.OrdinalIgnoreCase)
-            || folderName.Equals("Archives", StringComparison.OrdinalIgnoreCase)
-            || folderName.Equals("Code", StringComparison.OrdinalIgnoreCase)
+        var canonicalFolder = FolderMapping.GetFolder(folderName, folderName);
+        return string.Equals(folderName, canonicalFolder, StringComparison.OrdinalIgnoreCase)
             || folderName.Equals("Data Files", StringComparison.OrdinalIgnoreCase)
             || folderName.Equals("Miscellaneous", StringComparison.OrdinalIgnoreCase);
     }

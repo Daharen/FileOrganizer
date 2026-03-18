@@ -2,6 +2,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using FileOrganizer.Core;
+using FileOrganizer.Core.Classification;
+using FileOrganizer.Core.Extraction;
 using FileOrganizer.GUI.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -13,6 +15,8 @@ namespace FileOrganizer.GUI;
 public partial class MainWindow : Window
 {
     private readonly DirectoryScanner _scanner = new();
+    private readonly IClassificationService _classificationService = new DeterministicClassificationService(
+        new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor()])));
     private readonly DeterministicOrganizationPlanner _planner = new();
     private readonly OperationPlanValidator _validator = new();
     private readonly OrganizationExecutor _executor;
@@ -93,7 +97,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        _currentPlan = _planner.GetOrganizationPlan(_currentFolder.Path.LocalPath, _currentFiles);
+        var classifications = _currentFiles
+            .Select(file => _classificationService.Classify(file.SourcePath))
+            .ToList();
+
+        _currentPlan = _planner.GetOrganizationPlan(_currentFolder.Path.LocalPath, _currentFiles, classifications);
         _currentValidatedPlan = _validator.Validate(_currentFolder.Path.LocalPath, _currentPlan);
 
         var planListBox = this.FindControl<ListBox>("PlanListBox");
@@ -103,8 +111,8 @@ public partial class MainWindow : Window
 
             items.AddRange(_currentValidatedPlan.ApprovedOperations.Select(op =>
                 op.CollisionResolutionApplied
-                    ? $"APPROVED | id={op.OperationId} | {Path.GetFileName(op.SourcePath)} -> {op.OriginalProposedDestinationPath} | Resolved to {op.ResolvedDestinationPath} due to collision | confidence={op.ConfidenceScore:0.00}"
-                    : $"APPROVED | id={op.OperationId} | {Path.GetFileName(op.SourcePath)} -> {op.ResolvedDestinationPath} | confidence={op.ConfidenceScore:0.00}"));
+                    ? $"APPROVED | {op.PlanningStage.ToLowerInvariant()} | id={op.OperationId} | {Path.GetFileName(op.SourcePath)} -> {op.OriginalProposedDestinationPath} | Resolved to {op.ResolvedDestinationPath} due to collision | confidence={op.ConfidenceScore:0.00}"
+                    : $"APPROVED | {op.PlanningStage.ToLowerInvariant()} | id={op.OperationId} | {Path.GetFileName(op.SourcePath)} -> {op.ResolvedDestinationPath} | confidence={op.ConfidenceScore:0.00}"));
 
             items.AddRange(_currentValidatedPlan.RejectedOperations.Select(rej =>
                 $"REJECTED | {Path.GetFileName(rej.SourcePath)} | {rej.Code} | {rej.Message}"));
