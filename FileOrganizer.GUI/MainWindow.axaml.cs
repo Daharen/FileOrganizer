@@ -16,7 +16,7 @@ public partial class MainWindow : Window
 {
     private readonly DirectoryScanner _scanner = new();
     private readonly IClassificationService _classificationService = new DeterministicClassificationService(
-        new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor()])));
+        new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor(), new PdfFileExtractor(), new OpenXmlContainerExtractor()])));
     private readonly DeterministicOrganizationPlanner _planner = new();
     private readonly OperationPlanValidator _validator = new();
     private readonly OrganizationExecutor _executor;

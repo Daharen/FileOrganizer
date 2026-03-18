@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using FileOrganizer.Core.Classification;
 using FileOrganizer.Core.Extraction;
@@ -11,24 +12,24 @@ namespace FileOrganizer.Core.Tests;
 public sealed class DeterministicClassificationServiceTests
 {
     private readonly IClassificationService _service =
-        new DeterministicClassificationService(new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor()])));
+        new DeterministicClassificationService(new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor(), new PdfFileExtractor(), new OpenXmlContainerExtractor()])));
 
     [Fact]
     public void RealPdfSignature_ClassifiesToDocuments()
     {
-        var path = CreateTempFile("sample.pdf", Encoding.ASCII.GetBytes("%PDF-1.7 test"));
+        var path = CreateTempFile("sample.pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n1 0 obj << /Type /Page >>\n/Title (Quarterly Report)"));
 
         var result = _service.Classify(path);
 
         Assert.Equal("StructuredDocument", result.DetectedType);
         Assert.Equal("Documents", result.SemanticCategory);
         Assert.Equal("Documents", result.SuggestedFolder);
-        Assert.Equal("signature", result.AnalysisStage);
+        Assert.Equal("pdf_extraction", result.AnalysisStage);
         Assert.True(result.ConfidenceScore > 0.9);
     }
 
     [Fact]
-    public void TxtFile_UsesExtractionAndRoutesToDocuments()
+    public void TxtFile_UsesDeterministicRoutingAndRoutesToDocuments()
     {
         var path = CreateTempFile("notes.txt", Encoding.UTF8.GetBytes("alpha\nbeta\ngamma"));
 
@@ -36,12 +37,12 @@ public sealed class DeterministicClassificationServiceTests
 
         Assert.Equal("TextDocument", result.DetectedType);
         Assert.Equal("Documents", result.SuggestedFolder);
-        Assert.Equal("text_extraction", result.AnalysisStage);
+        Assert.Equal("signature", result.AnalysisStage);
         Assert.InRange(result.ConfidenceScore, 0.75, 0.9);
     }
 
     [Fact]
-    public void CsFile_UsesExtractionAndRoutesToCode()
+    public void CsFile_UsesDeterministicRoutingAndRoutesToCode()
     {
         var path = CreateTempFile("Program.cs", Encoding.UTF8.GetBytes("using System;\nclass Program { static void Main() { } }"));
 
@@ -51,20 +52,45 @@ public sealed class DeterministicClassificationServiceTests
         Assert.Equal("Code", result.SemanticCategory);
         Assert.Equal("Code", result.SuggestedFolder);
         Assert.Equal("Program.cs", result.SuggestedFilename);
-        Assert.Equal("text_extraction", result.AnalysisStage);
+        Assert.Equal("signature", result.AnalysisStage);
     }
 
     [Fact]
     public void StrongerSignature_WinsOverMisleadingExtensionWhenSafe()
     {
-        var path = CreateTempFile("tricky.txt", Encoding.ASCII.GetBytes("%PDF-1.7 disguised"));
+        var path = CreateTempFile("tricky.txt", Encoding.ASCII.GetBytes("%PDF-1.7 disguised /Type /Page"));
 
         var result = _service.Classify(path);
 
         Assert.Equal("StructuredDocument", result.DetectedType);
         Assert.Equal("Documents", result.SuggestedFolder);
-        Assert.Equal("signature", result.AnalysisStage);
+        Assert.Equal("pdf_extraction", result.AnalysisStage);
         Assert.DoesNotContain(".txt", result.ReasoningSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void StructuredDocumentContainer_IsPreferredOverArchiveFallback()
+    {
+        var path = CreateZipFile("report.zip", "[Content_Types].xml", "word/document.xml", "docProps/core.xml");
+
+        var result = _service.Classify(path);
+
+        Assert.Equal("StructuredDocument", result.DetectedType);
+        Assert.Equal("Documents", result.SuggestedFolder);
+        Assert.Equal("container_structure", result.AnalysisStage);
+        Assert.Contains("OpenXML", result.ReasoningSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GenericZip_StillRoutesAsArchive()
+    {
+        var path = CreateZipFile("archive.zip", "folder/file.txt");
+
+        var result = _service.Classify(path);
+
+        Assert.Equal("Archive", result.DetectedType);
+        Assert.Equal("Archives", result.SuggestedFolder);
+        Assert.Equal("signature", result.AnalysisStage);
     }
 
     [Fact]
@@ -122,6 +148,25 @@ public sealed class DeterministicClassificationServiceTests
         var directory = CreateTempDirectory();
         var path = Path.Combine(directory, fileName);
         File.WriteAllBytes(path, content);
+        return path;
+    }
+
+    private static string CreateZipFile(string fileName, params string[] entryNames)
+    {
+        var directory = CreateTempDirectory();
+        var path = Path.Combine(directory, fileName);
+
+        using (var stream = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false))
+        {
+            foreach (var entryName in entryNames)
+            {
+                var entry = archive.CreateEntry(entryName);
+                using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+                writer.Write(entryName);
+            }
+        }
+
         return path;
     }
 

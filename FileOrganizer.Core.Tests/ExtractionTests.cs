@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using FileOrganizer.Core.Extraction;
 using Xunit;
@@ -11,7 +13,7 @@ public sealed class ExtractionTests
     [Fact]
     public void FileTypeDetector_DetectsPdfSignature()
     {
-        var path = CreateTempFile("sample.pdf", Encoding.ASCII.GetBytes("%PDF-1.7 test"));
+        var path = CreateTempFile("sample.pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n1 0 obj << /Type /Page >>\n/Title (Sample PDF)"));
         var detector = new FileTypeDetector();
 
         var result = detector.Detect(path);
@@ -23,9 +25,48 @@ public sealed class ExtractionTests
     }
 
     [Fact]
-    public void FileTypeDetector_DetectsZipSignature()
+    public void FileTypeDetector_DetectsDocxLikeZipAsStructuredDocument()
     {
-        var path = CreateTempFile("sample.zip", new byte[] { 0x50, 0x4B, 0x03, 0x04, 0x14, 0x00 });
+        var path = CreateZipFile("sample.docx", "[Content_Types].xml", "word/document.xml", "docProps/core.xml");
+        var detector = new FileTypeDetector();
+
+        var result = detector.Detect(path);
+
+        Assert.Equal("application/vnd.openxmlformats-officedocument.wordprocessingml.document", result.DetectedMime);
+        Assert.Equal("StructuredDocument", result.Category);
+        Assert.True(result.SignatureMatched);
+    }
+
+    [Fact]
+    public void FileTypeDetector_DetectsXlsxLikeZipAsStructuredDocument()
+    {
+        var path = CreateZipFile("sample.xlsx", "[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml");
+        var detector = new FileTypeDetector();
+
+        var result = detector.Detect(path);
+
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", result.DetectedMime);
+        Assert.Equal("StructuredDocument", result.Category);
+        Assert.True(result.SignatureMatched);
+    }
+
+    [Fact]
+    public void FileTypeDetector_DetectsPptxLikeZipAsStructuredDocument()
+    {
+        var path = CreateZipFile("sample.pptx", "[Content_Types].xml", "ppt/presentation.xml", "ppt/slides/slide1.xml");
+        var detector = new FileTypeDetector();
+
+        var result = detector.Detect(path);
+
+        Assert.Equal("application/vnd.openxmlformats-officedocument.presentationml.presentation", result.DetectedMime);
+        Assert.Equal("StructuredDocument", result.Category);
+        Assert.True(result.SignatureMatched);
+    }
+
+    [Fact]
+    public void FileTypeDetector_DetectsGenericZipWhenNoOpenXmlMarkersExist()
+    {
+        var path = CreateZipFile("sample.zip", "notes/readme.txt");
         var detector = new FileTypeDetector();
 
         var result = detector.Detect(path);
@@ -110,6 +151,51 @@ public sealed class ExtractionTests
     }
 
     [Fact]
+    public void PdfFileExtractor_ReturnsSafeArtifactOnMinimalUnreadablePdf()
+    {
+        var path = CreateTempFile("minimal.pdf", Encoding.ASCII.GetBytes("%PDF-1.4\n1 0 obj << /Type /Catalog >>\n%%EOF"));
+        var extractor = new PdfFileExtractor();
+        var detected = new DetectedFileType
+        {
+            Extension = ".pdf",
+            DetectedMime = "application/pdf",
+            Category = "StructuredDocument",
+            Confidence = 0.95,
+            SignatureMatched = true
+        };
+
+        var result = extractor.Extract(path, detected);
+
+        Assert.True(result.Status.Success);
+        Assert.True(result.Status.Partial);
+        Assert.Equal("1.4", result.Metadata.Additional["PdfVersion"]);
+        Assert.Equal(0, result.Structure.PageCount);
+    }
+
+    [Fact]
+    public void OpenXmlContainerExtractor_ReturnsPartialSuccessArtifactWithStructuralMetadata()
+    {
+        var path = CreateZipFile("slides.pptx", "[Content_Types].xml", "ppt/presentation.xml", "ppt/slides/slide1.xml", "ppt/media/image1.png");
+        var extractor = new OpenXmlContainerExtractor();
+        var detected = new DetectedFileType
+        {
+            Extension = ".pptx",
+            DetectedMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            Category = "StructuredDocument",
+            Confidence = 0.95,
+            SignatureMatched = true
+        };
+
+        var result = extractor.Extract(path, detected);
+
+        Assert.True(result.Status.Success);
+        Assert.True(result.Status.Partial);
+        Assert.Equal("PPTX", result.Metadata.Additional["ContainerSubtype"]);
+        Assert.True(result.Structure.EntryCount >= 3);
+        Assert.True(result.Structure.HasImages);
+    }
+
+    [Fact]
     public void ExtractionService_ReturnsFallbackArtifactWhenNoExtractorMatches()
     {
         var path = CreateTempFile("archive.bin", new byte[] { 0x01, 0x02, 0x03, 0x04 });
@@ -140,6 +226,26 @@ public sealed class ExtractionTests
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, fileName);
         File.WriteAllBytes(path, content);
+        return path;
+    }
+
+    private static string CreateZipFile(string fileName, params string[] entryNames)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, fileName);
+
+        using (var stream = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false))
+        {
+            foreach (var entryName in entryNames.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var entry = archive.CreateEntry(entryName);
+                using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+                writer.Write(entryName);
+            }
+        }
+
         return path;
     }
 
