@@ -215,7 +215,7 @@ public sealed class OperationPlanValidator
                 ProposedFileName = normalizedFileName,
                 ConfidenceScore = operation.ConfidenceScore,
                 ReasoningSummary = operation.ReasoningSummary,
-                PlanningStage = "Validated",
+                PlanningStage = ExtractPlanningStage(operation.ReasoningSummary),
                 StableOrderIndex = stableOrderIndex
             });
 
@@ -460,4 +460,22 @@ public sealed class OperationPlanValidator
             Path.GetFullPath(right),
             PathComparisonPolicy.PathComparison);
     }
+
+    private static string ExtractPlanningStage(string reasoningSummary)
+    {
+        if (string.IsNullOrWhiteSpace(reasoningSummary))
+        {
+            return "validated";
+        }
+
+        var separatorIndex = reasoningSummary.IndexOf(':');
+        if (separatorIndex <= 0)
+        {
+            return "validated";
+        }
+
+        var stage = reasoningSummary[..separatorIndex].Trim();
+        return string.IsNullOrWhiteSpace(stage) ? "validated" : stage;
+    }
+
 }
