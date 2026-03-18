@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using FileOrganizer.Core.Classification;
+using FileOrganizer.Core.Renaming;
 
 namespace FileOrganizer.Core;
 
@@ -33,10 +34,39 @@ public sealed class DeterministicOrganizationPlanner
         return GetOrganizationPlan(basePath, scannedFiles, classifications);
     }
 
+
+    public OrganizationPlan GetOrganizationPlan(
+        string basePath,
+        IReadOnlyCollection<ScannedFile> scannedFiles,
+        IReadOnlyCollection<ClassificationResult> classifications,
+        IReadOnlyCollection<FilenameSuggestion> filenameSuggestions)
+    {
+        ArgumentNullException.ThrowIfNull(filenameSuggestions);
+
+        var suggestionMap = new Dictionary<string, FilenameSuggestion>(StringComparer.OrdinalIgnoreCase);
+        using var fileEnumerator = scannedFiles.GetEnumerator();
+        using var suggestionEnumerator = filenameSuggestions.GetEnumerator();
+        while (fileEnumerator.MoveNext() && suggestionEnumerator.MoveNext())
+        {
+            suggestionMap[fileEnumerator.Current.SourcePath] = suggestionEnumerator.Current;
+        }
+
+        return GetOrganizationPlan(basePath, scannedFiles, classifications, suggestionMap);
+    }
+
     public OrganizationPlan GetOrganizationPlan(
         string basePath,
         IReadOnlyCollection<ScannedFile> scannedFiles,
         IReadOnlyCollection<ClassificationResult> classifications)
+    {
+        return GetOrganizationPlan(basePath, scannedFiles, classifications, null);
+    }
+
+    private OrganizationPlan GetOrganizationPlan(
+        string basePath,
+        IReadOnlyCollection<ScannedFile> scannedFiles,
+        IReadOnlyCollection<ClassificationResult> classifications,
+        IReadOnlyDictionary<string, FilenameSuggestion>? suggestionMap)
     {
         ArgumentNullException.ThrowIfNull(scannedFiles);
         ArgumentNullException.ThrowIfNull(classifications);
@@ -81,16 +111,32 @@ public sealed class DeterministicOrganizationPlanner
                 continue;
             }
 
+            var originalFileName = Path.GetFileName(file.SourcePath);
+            var renameSuggestion = suggestionMap is not null && suggestionMap.TryGetValue(file.SourcePath, out var suggestion)
+                ? suggestion
+                : null;
+            var proposedFileName = renameSuggestion is not null && renameSuggestion.ShouldRename
+                ? renameSuggestion.SuggestedFilename
+                : string.IsNullOrWhiteSpace(classification.SuggestedFilename)
+                    ? originalFileName
+                    : classification.SuggestedFilename;
+            var stage = renameSuggestion is not null && renameSuggestion.ShouldRename
+                ? "rename_deterministic"
+                : classification.AnalysisStage;
+            var reasoningSummary = renameSuggestion is not null && renameSuggestion.ShouldRename
+                ? $"{stage}: {renameSuggestion.ReasoningSummary}"
+                : $"{classification.AnalysisStage}: {classification.ReasoningSummary}";
+
             plan.Operations.Add(new FileMoveOperation
             {
                 SourcePath = file.SourcePath,
                 DestinationDirectory = Path.Combine(basePath, category),
-                ProposedFileName = string.IsNullOrWhiteSpace(classification.SuggestedFilename)
-                    ? Path.GetFileName(file.SourcePath)
-                    : classification.SuggestedFilename,
+                ProposedFileName = proposedFileName,
                 Category = category,
-                ConfidenceScore = classification.ConfidenceScore,
-                ReasoningSummary = $"{classification.AnalysisStage}: {classification.ReasoningSummary}"
+                ConfidenceScore = renameSuggestion is not null && renameSuggestion.ShouldRename
+                    ? Math.Max(classification.ConfidenceScore, renameSuggestion.ConfidenceScore)
+                    : classification.ConfidenceScore,
+                ReasoningSummary = reasoningSummary
             });
         }
 
