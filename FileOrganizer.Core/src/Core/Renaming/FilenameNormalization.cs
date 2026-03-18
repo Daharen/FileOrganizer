@@ -72,7 +72,7 @@ public static partial class FilenameNormalization
             return string.Empty;
         }
 
-        return sanitized.StartsWith('.', StringComparison.Ordinal) ? sanitized : $".{sanitized}";
+        return sanitized.StartsWith(".", StringComparison.Ordinal) ? sanitized : $".{sanitized}";
     }
 
     private static string BoundStemLength(string stem, string extension, int maxLength)

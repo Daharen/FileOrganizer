@@ -59,7 +59,11 @@ public sealed class DeterministicOrganizationPlanner
         IReadOnlyCollection<ScannedFile> scannedFiles,
         IReadOnlyCollection<ClassificationResult> classifications)
     {
-        return GetOrganizationPlan(basePath, scannedFiles, classifications, null);
+        return GetOrganizationPlan(
+            basePath,
+            scannedFiles,
+            classifications,
+            (IReadOnlyDictionary<string, FilenameSuggestion>?)null);
     }
 
     private OrganizationPlan GetOrganizationPlan(
