@@ -32,9 +32,7 @@ public sealed class DeterministicClassificationService : IClassificationService
                 return CreateExtensionFallback(path, originalFileName, extension, artifact.Status.ErrorMessage);
             }
 
-            var analysisStage = artifact.FileType.Confidence >= 0.9
-                ? "signature"
-                : "text_extraction";
+            var analysisStage = DetermineAnalysisStage(artifact);
             var confidence = artifact.FileType.Confidence >= 0.9
                 ? artifact.FileType.Confidence
                 : Math.Max(artifact.FileType.Confidence, 0.75);
@@ -49,15 +47,41 @@ public sealed class DeterministicClassificationService : IClassificationService
                 ConfidenceScore = confidence,
                 ReasoningSource = "Deterministic",
                 AnalysisStage = analysisStage,
-                ReasoningSummary = analysisStage == "signature"
-                    ? $"Signature-backed type {detectedType}."
-                    : $"Extraction confirmed {detectedType}."
+                ReasoningSummary = BuildReasoningSummary(artifact, detectedType, analysisStage)
             };
         }
         catch
         {
             return CreateExtensionFallback(path, originalFileName, extension, null);
         }
+    }
+
+    private static string DetermineAnalysisStage(ExtractionArtifact artifact)
+    {
+        if (artifact.FileType.DetectedMime.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return artifact.Content.TextPreview is not null || artifact.Structure.PageCount > 0 || artifact.Metadata.Additional.ContainsKey("PdfVersion")
+                ? "pdf_extraction"
+                : "signature";
+        }
+
+        if (artifact.Metadata.Additional.ContainsKey("ContainerSubtype") || artifact.Structure.EntryCount > 0)
+        {
+            return "container_structure";
+        }
+
+        return "signature";
+    }
+
+    private static string BuildReasoningSummary(ExtractionArtifact artifact, string detectedType, string analysisStage)
+    {
+        return analysisStage switch
+        {
+            "pdf_extraction" => $"PDF extraction confirmed {detectedType} with page/metadata signals.",
+            "container_structure" => $"Container structure confirmed {detectedType} from OpenXML entry names.",
+            "signature" => $"Signature-backed type {detectedType}.",
+            _ => $"Extraction confirmed {detectedType}."
+        };
     }
 
     private static ClassificationResult CreateExtensionFallback(string path, string originalFileName, string extension, string? errorMessage)

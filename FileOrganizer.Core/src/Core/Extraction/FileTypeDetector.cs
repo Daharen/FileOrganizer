@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 
 namespace FileOrganizer.Core.Extraction;
@@ -47,7 +48,7 @@ public sealed class FileTypeDetector : IFileTypeDetector
         var extension = Path.GetExtension(path) ?? string.Empty;
         var header = ReadHeader(path, 16);
 
-        if (TryDetectBySignature(header, extension, out var detected))
+        if (TryDetectBySignature(path, header, extension, out var detected))
         {
             return detected;
         }
@@ -94,7 +95,7 @@ public sealed class FileTypeDetector : IFileTypeDetector
         return bytesRead == buffer.Length ? buffer : buffer[..bytesRead];
     }
 
-    private static bool TryDetectBySignature(ReadOnlySpan<byte> header, string extension, out DetectedFileType detected)
+    private static bool TryDetectBySignature(string path, ReadOnlySpan<byte> header, string extension, out DetectedFileType detected)
     {
         if (header.StartsWith("%PDF-"u8))
         {
@@ -104,15 +105,7 @@ public sealed class FileTypeDetector : IFileTypeDetector
 
         if (header.Length >= 4 && header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04)
         {
-            var zipMime = extension.Equals(".docx", StringComparison.OrdinalIgnoreCase)
-                ? ExtensionMap[".docx"].Mime
-                : extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
-                    ? ExtensionMap[".xlsx"].Mime
-                    : extension.Equals(".pptx", StringComparison.OrdinalIgnoreCase)
-                        ? ExtensionMap[".pptx"].Mime
-                        : "application/zip";
-            var category = extension is ".docx" or ".xlsx" or ".pptx" ? "StructuredDocument" : "Archive";
-            detected = CreateDetected(extension, zipMime, category);
+            detected = DetectZipContainer(path, extension, header);
             return true;
         }
 
@@ -167,6 +160,58 @@ public sealed class FileTypeDetector : IFileTypeDetector
         }
 
         detected = null!;
+        return false;
+    }
+
+
+    private static DetectedFileType DetectZipContainer(string path, string extension, ReadOnlySpan<byte> _)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && TryDetectOpenXmlSubtype(path, extension, out var detected))
+        {
+            return detected;
+        }
+
+        return CreateDetected(extension, "application/zip", "Archive");
+    }
+
+    private static bool TryDetectOpenXmlSubtype(string path, string extension, out DetectedFileType detected)
+    {
+        detected = null!;
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+            var entryNames = archive.Entries.Select(entry => entry.FullName).ToArray();
+            var hasContentTypes = entryNames.Any(name => name.Equals("[Content_Types].xml", StringComparison.OrdinalIgnoreCase));
+            if (!hasContentTypes)
+            {
+                return false;
+            }
+
+            if (entryNames.Any(name => name.StartsWith("word/", StringComparison.OrdinalIgnoreCase)))
+            {
+                detected = CreateDetected(extension, ExtensionMap[".docx"].Mime, "StructuredDocument");
+                return true;
+            }
+
+            if (entryNames.Any(name => name.StartsWith("xl/", StringComparison.OrdinalIgnoreCase)))
+            {
+                detected = CreateDetected(extension, ExtensionMap[".xlsx"].Mime, "StructuredDocument");
+                return true;
+            }
+
+            if (entryNames.Any(name => name.StartsWith("ppt/", StringComparison.OrdinalIgnoreCase)))
+            {
+                detected = CreateDetected(extension, ExtensionMap[".pptx"].Mime, "StructuredDocument");
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall back to generic ZIP classification on unreadable archives.
+        }
+
         return false;
     }
 
