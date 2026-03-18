@@ -15,6 +15,9 @@ public partial class MainWindow : Window
     private readonly DeterministicOrganizationPlanner _planner = new();
     private readonly OperationPlanValidator _validator = new();
     private readonly OrganizationExecutor _executor;
+    private readonly IExecutionJournalReader _journalReader;
+    private readonly UndoPlanBuilder _undoPlanBuilder = new();
+    private readonly UndoExecutor _undoExecutor = new();
 
     private IStorageFolder? _currentFolder;
     private List<ScannedFile> _currentFiles = new();
@@ -30,25 +33,22 @@ public partial class MainWindow : Window
             "FileOrganizer");
         var journalPath = Path.Combine(journalDirectory, "execution-journal.ndjson");
         var journal = new FileExecutionJournal(journalPath);
+        _journalReader = new FileExecutionJournalReader(journalPath);
         _executor = new OrganizationExecutor(journal, journalPath);
 
-        var selectFolderButton = this.FindControl<Button>("SelectFolderButton");
-        var previewButton = this.FindControl<Button>("PreviewButton");
-        var executeButton = this.FindControl<Button>("ExecuteButton");
+        WireButton("SelectFolderButton", SelectFolderButton_Click);
+        WireButton("PreviewButton", PreviewButton_Click);
+        WireButton("ExecuteButton", ExecuteButton_Click);
+        WireButton("UndoLastRunButton", UndoLastRunButton_Click);
+        WireButton("UndoRunIdButton", UndoRunIdButton_Click);
+    }
 
-        if (selectFolderButton is not null)
+    private void WireButton(string name, EventHandler<RoutedEventArgs> handler)
+    {
+        var button = this.FindControl<Button>(name);
+        if (button is not null)
         {
-            selectFolderButton.Click += SelectFolderButton_Click;
-        }
-
-        if (previewButton is not null)
-        {
-            previewButton.Click += PreviewButton_Click;
-        }
-
-        if (executeButton is not null)
-        {
-            executeButton.Click += ExecuteButton_Click;
+            button.Click += handler;
         }
     }
 
@@ -77,32 +77,10 @@ public partial class MainWindow : Window
         _currentPlan = null;
         _currentValidatedPlan = null;
 
-        var fileListBox = this.FindControl<ListBox>("FileListBox");
-        var planListBox = this.FindControl<ListBox>("PlanListBox");
-        var statusTextBlock = this.FindControl<TextBlock>("StatusTextBlock");
-        var summaryTextBlock = this.FindControl<TextBlock>("SummaryTextBlock");
-
-        if (fileListBox is not null)
-        {
-            fileListBox.ItemsSource = _currentFiles
-                .Select(file => $"{file.RelativePath} | {file.SizeBytes} bytes")
-                .ToList();
-        }
-
-        if (planListBox is not null)
-        {
-            planListBox.ItemsSource = null;
-        }
-
-        if (statusTextBlock is not null)
-        {
-            statusTextBlock.Text = $"Loaded folder: {_currentFolder.Path.LocalPath}";
-        }
-
-        if (summaryTextBlock is not null)
-        {
-            summaryTextBlock.Text = $"Scanned {_currentFiles.Count} files.";
-        }
+        UpdateFileList();
+        ClearPlanList();
+        SetStatus($"Loaded folder: {_currentFolder.Path.LocalPath}");
+        SetSummary($"Scanned {_currentFiles.Count} files.");
     }
 
     private void PreviewButton_Click(object? sender, RoutedEventArgs e)
@@ -158,21 +136,8 @@ public partial class MainWindow : Window
 
         var executionResult = _executor.ExecutePlan(_currentValidatedPlan);
 
-        var planListBox = this.FindControl<ListBox>("PlanListBox");
-        if (planListBox is not null)
-        {
-            planListBox.ItemsSource = executionResult.Messages;
-        }
-
-        _currentFiles = _scanner.ScanDirectory(_currentFolder.Path.LocalPath);
-
-        var fileListBox = this.FindControl<ListBox>("FileListBox");
-        if (fileListBox is not null)
-        {
-            fileListBox.ItemsSource = _currentFiles
-                .Select(file => $"{file.RelativePath} | {file.SizeBytes} bytes")
-                .ToList();
-        }
+        SetPlanList(executionResult.Messages);
+        RefreshCurrentFolderFiles();
 
         SetSummary(
             $"Execution complete.{Environment.NewLine}" +
@@ -182,6 +147,108 @@ public partial class MainWindow : Window
             $"Journal path {executionResult.JournalPath}.{Environment.NewLine}" +
             $"Journal entries appended {executionResult.JournalEntriesAppended}. Journal append failures {executionResult.JournalAppendFailures}.{Environment.NewLine}" +
             $"Remaining visible files {_currentFiles.Count}.");
+    }
+
+    private void UndoLastRunButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var latestRunId = _journalReader.ReadLatestRunId();
+        if (string.IsNullOrWhiteSpace(latestRunId))
+        {
+            SetSummary("No journaled run is available to undo.");
+            return;
+        }
+
+        ExecuteUndo(latestRunId);
+    }
+
+    private void UndoRunIdButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var runIdTextBox = this.FindControl<TextBox>("UndoRunIdTextBox");
+        var runId = runIdTextBox?.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            SetSummary("Enter a run id before requesting undo.");
+            return;
+        }
+
+        ExecuteUndo(runId);
+    }
+
+    private void ExecuteUndo(string runId)
+    {
+        if (_currentFolder is null)
+        {
+            SetSummary("Select a folder before running undo so the authorized root is known.");
+            return;
+        }
+
+        var entries = _journalReader.ReadByRunId(runId);
+        if (entries.Count == 0)
+        {
+            SetSummary($"No journal entries were found for run id {runId}.");
+            return;
+        }
+
+        var undoOperations = _undoPlanBuilder.Build(entries);
+        var undoResult = _undoExecutor.Execute(runId, _currentFolder.Path.LocalPath, undoOperations);
+
+        var combinedMessages = new List<string>();
+        if (_journalReader is FileExecutionJournalReader fileReader && fileReader.ParseFailures.Count > 0)
+        {
+            combinedMessages.AddRange(fileReader.ParseFailures);
+        }
+
+        combinedMessages.AddRange(undoResult.Messages);
+        SetPlanList(combinedMessages);
+        RefreshCurrentFolderFiles();
+
+        SetSummary(
+            $"Undo complete.{Environment.NewLine}" +
+            $"Run id {undoResult.RunId}.{Environment.NewLine}" +
+            $"Attempted {undoResult.Attempted}. Restored {undoResult.Restored}. Failed {undoResult.Failed}. Skipped {undoResult.Skipped}. Collision-preserved {undoResult.CollisionPreserved}.{Environment.NewLine}" +
+            $"Remaining visible files {_currentFiles.Count}.");
+    }
+
+    private void RefreshCurrentFolderFiles()
+    {
+        if (_currentFolder is null)
+        {
+            return;
+        }
+
+        _currentFiles = _scanner.ScanDirectory(_currentFolder.Path.LocalPath);
+        UpdateFileList();
+    }
+
+    private void UpdateFileList()
+    {
+        var fileListBox = this.FindControl<ListBox>("FileListBox");
+        if (fileListBox is not null)
+        {
+            fileListBox.ItemsSource = _currentFiles
+                .Select(file => $"{file.RelativePath} | {file.SizeBytes} bytes")
+                .ToList();
+        }
+    }
+
+    private void SetPlanList(IEnumerable<string> items)
+    {
+        var planListBox = this.FindControl<ListBox>("PlanListBox");
+        if (planListBox is not null)
+        {
+            planListBox.ItemsSource = items.ToList();
+        }
+    }
+
+    private void ClearPlanList() => SetPlanList(Array.Empty<string>());
+
+    private void SetStatus(string message)
+    {
+        var statusTextBlock = this.FindControl<TextBlock>("StatusTextBlock");
+        if (statusTextBlock is not null)
+        {
+            statusTextBlock.Text = message;
+        }
     }
 
     private void SetSummary(string message)

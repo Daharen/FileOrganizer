@@ -14,4 +14,5 @@ public sealed record ExecutionJournalEntry(
     DateTimeOffset TimestampUtc,
     double? ClassificationConfidence,
     string? PlanningStage,
-    string? FailureReason);
+    string? FailureReason,
+    int JournalSequenceIndex = -1);

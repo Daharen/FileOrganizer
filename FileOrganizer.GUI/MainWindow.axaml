@@ -20,6 +20,15 @@
       <Button x:Name="ExecuteButton"
               Width="130"
               Content="Execute Plan" />
+      <Button x:Name="UndoLastRunButton"
+              Width="130"
+              Content="Undo Last Run" />
+      <TextBox x:Name="UndoRunIdTextBox"
+               Width="220"
+               Watermark="Run id for undo" />
+      <Button x:Name="UndoRunIdButton"
+              Width="120"
+              Content="Undo Run Id" />
     </StackPanel>
 
     <TextBlock x:Name="StatusTextBlock"
