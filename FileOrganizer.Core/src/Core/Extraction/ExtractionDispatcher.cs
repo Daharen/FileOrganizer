@@ -12,31 +12,37 @@ public sealed class ExtractionDispatcher
         _extractors = extractors.ToList();
     }
 
-    public ExtractionArtifact Dispatch(string path, string extension, string mime)
+    public ExtractionArtifact Dispatch(string path, DetectedFileType detectedType)
     {
-        var extractor = _extractors.FirstOrDefault(e => e.CanHandle(extension, mime));
+        var extractor = _extractors.FirstOrDefault(e => e.CanHandle(detectedType.Extension, detectedType.DetectedMime));
 
         if (extractor == null)
         {
-            return CreateFallback(path, extension, mime);
+            return CreateFallback(path, detectedType);
         }
 
         try
         {
-            return extractor.Extract(path);
+            return extractor.Extract(path, detectedType);
         }
         catch (Exception ex)
         {
-            return CreateFailure(path, extension, mime, ex.Message);
+            return CreateFailure(path, detectedType, ex.Message);
         }
     }
 
-    private static ExtractionArtifact CreateFallback(string path, string ext, string mime)
+    private static ExtractionArtifact CreateFallback(string path, DetectedFileType detectedType)
     {
         return new ExtractionArtifact
         {
             Identity = new FileIdentity { Path = path, Size = new FileInfo(path).Length },
-            FileType = new FileTypeInfo { Extension = ext, DetectedMime = mime, Confidence = 0.0 },
+            FileType = new FileTypeInfo
+            {
+                Extension = detectedType.Extension,
+                DetectedMime = detectedType.DetectedMime,
+                Category = detectedType.Category,
+                Confidence = detectedType.Confidence
+            },
             Metadata = new MetadataInfo(),
             Content = new ContentSummary(),
             Structure = new StructuralFeatures(),
@@ -44,12 +50,18 @@ public sealed class ExtractionDispatcher
         };
     }
 
-    private static ExtractionArtifact CreateFailure(string path, string ext, string mime, string error)
+    private static ExtractionArtifact CreateFailure(string path, DetectedFileType detectedType, string error)
     {
         return new ExtractionArtifact
         {
             Identity = new FileIdentity { Path = path, Size = new FileInfo(path).Length },
-            FileType = new FileTypeInfo { Extension = ext, DetectedMime = mime, Confidence = 0.0 },
+            FileType = new FileTypeInfo
+            {
+                Extension = detectedType.Extension,
+                DetectedMime = detectedType.DetectedMime,
+                Category = detectedType.Category,
+                Confidence = detectedType.Confidence
+            },
             Metadata = new MetadataInfo(),
             Content = new ContentSummary(),
             Structure = new StructuralFeatures(),
