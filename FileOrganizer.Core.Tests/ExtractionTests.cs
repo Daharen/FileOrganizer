@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Text;
 using FileOrganizer.Core.Extraction;
 using Xunit;
@@ -71,7 +73,7 @@ public sealed class ExtractionTests
             Extension = ".md",
             DetectedMime = "text/markdown",
             Category = "TextDocument",
-            Confidence = 0.6
+            Confidence = 0.6,
         };
 
         var result = extractor.Extract(path, detected);
@@ -87,7 +89,8 @@ public sealed class ExtractionTests
     [Fact]
     public void TextFileExtractor_HandlesTruncatedReadsDeterministically()
     {
-        var content = new string('a', TextFileExtractor.MaxReadBytes + 1024);
+        const int MaxReadBytes = 256 * 1024;
+        var content = new string('a', MaxReadBytes + 1024);
         var path = CreateTempFile("big.txt", Encoding.UTF8.GetBytes(content));
         var extractor = new TextFileExtractor();
         var detected = new DetectedFileType
@@ -95,7 +98,7 @@ public sealed class ExtractionTests
             Extension = ".txt",
             DetectedMime = "text/plain",
             Category = "TextDocument",
-            Confidence = 0.6
+            Confidence = 0.6,
         };
 
         var result = extractor.Extract(path, detected);
@@ -115,7 +118,7 @@ public sealed class ExtractionTests
             Extension = ".bin",
             DetectedMime = "application/octet-stream",
             Category = "Unknown",
-            Confidence = 0.1
+            Confidence = 0.1,
         };
         var detector = new StubDetector(detectedType);
         var dispatcher = new ExtractionDispatcher(Array.Empty<IFileExtractor>());
