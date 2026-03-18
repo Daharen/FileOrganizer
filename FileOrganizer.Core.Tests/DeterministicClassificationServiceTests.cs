@@ -15,6 +15,78 @@ public sealed class DeterministicClassificationServiceTests
         new DeterministicClassificationService(new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor(), new PdfFileExtractor(), new OpenXmlContainerExtractor()])));
 
     [Fact]
+    public void InvoiceLikeText_RoutesToDocumentsFinance()
+    {
+        var result = ClassifyText("invoice.txt", "Invoice Number: INV-1001\nBill To: Example Corp\nSubtotal: 100.00\nTax: 8.00\nAmount Due: $108.00\nTotal: $108.00");
+
+        Assert.Equal("Invoice", result.SemanticCategory);
+        Assert.Equal("Documents/Finance", result.SuggestedFolder);
+        Assert.Equal("heuristic_content", result.AnalysisStage);
+        Assert.Equal("invoice.txt", result.SuggestedFilename);
+        Assert.DoesNotContain("Invoice Number", result.ReasoningSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResumeLikeText_RoutesToDocumentsCareer()
+    {
+        var result = ClassifyText("resume.txt", "Professional Summary\nExperience\nEmployment History\nEducation\nSkills\nReferences");
+
+        Assert.Equal("Resume", result.SemanticCategory);
+        Assert.Equal("Documents/Career", result.SuggestedFolder);
+        Assert.Equal("heuristic_content", result.AnalysisStage);
+    }
+
+    [Fact]
+    public void NotesLikeText_RoutesToDocumentsNotes()
+    {
+        var result = ClassifyText("meeting-notes.txt", "2026-03-18\nAgenda\n- Notes from weekly meeting\n- Todo review\n- Action items for follow-up");
+
+        Assert.Equal("Notes", result.SemanticCategory);
+        Assert.Equal("Documents/Notes", result.SuggestedFolder);
+        Assert.Equal("heuristic_content", result.AnalysisStage);
+    }
+
+    [Fact]
+    public void ReportLikeText_RoutesToDocumentsReports()
+    {
+        var result = ClassifyText("quarterly-report.txt", "# Executive Summary\n# Introduction\n# Methodology\n# Results\n# Conclusion\nDetailed findings are listed below.");
+
+        Assert.Equal("Report", result.SemanticCategory);
+        Assert.Equal("Documents/Reports", result.SuggestedFolder);
+        Assert.Equal("heuristic_content", result.AnalysisStage);
+    }
+
+    [Fact]
+    public void JsonConfiguration_RoutesToCodeConfig()
+    {
+        var result = ClassifyText("appsettings.json", "{\n  \"host\": \"localhost\",\n  \"port\": 5432,\n  \"enabled\": true,\n  \"timeout\": 30,\n  \"connectionString\": \"Server=db;\"\n}");
+
+        Assert.Equal("Configuration", result.SemanticCategory);
+        Assert.Equal("Code/Config", result.SuggestedFolder);
+        Assert.Equal("heuristic_content", result.AnalysisStage);
+    }
+
+    [Fact]
+    public void CsvDataExport_RoutesToData()
+    {
+        var result = ClassifyText("customers.csv", "id,email,status,created_at,updated_at\n1,a@example.com,active,2026-01-01,2026-01-02\n2,b@example.com,inactive,2026-01-03,2026-01-04\n3,c@example.com,active,2026-01-05,2026-01-06");
+
+        Assert.Equal("DataExport", result.SemanticCategory);
+        Assert.Equal("Data", result.SuggestedFolder);
+        Assert.Equal("heuristic_content", result.AnalysisStage);
+    }
+
+    [Fact]
+    public void AmbiguousText_DoesNotOverClassify()
+    {
+        var result = ClassifyText("scratch.txt", "hello\nthis is a short file\nwith no strong routing signal");
+
+        Assert.Equal("Documents", result.SemanticCategory);
+        Assert.Equal("Documents", result.SuggestedFolder);
+        Assert.Equal("signature", result.AnalysisStage);
+    }
+
+    [Fact]
     public void RealPdfSignature_ClassifiesToDocuments()
     {
         var path = CreateTempFile("sample.pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n1 0 obj << /Type /Page >>\n/Title (Quarterly Report)"));
@@ -26,19 +98,6 @@ public sealed class DeterministicClassificationServiceTests
         Assert.Equal("Documents", result.SuggestedFolder);
         Assert.Equal("pdf_extraction", result.AnalysisStage);
         Assert.True(result.ConfidenceScore > 0.9);
-    }
-
-    [Fact]
-    public void TxtFile_UsesDeterministicRoutingAndRoutesToDocuments()
-    {
-        var path = CreateTempFile("notes.txt", Encoding.UTF8.GetBytes("alpha\nbeta\ngamma"));
-
-        var result = _service.Classify(path);
-
-        Assert.Equal("TextDocument", result.DetectedType);
-        Assert.Equal("Documents", result.SuggestedFolder);
-        Assert.Equal("signature", result.AnalysisStage);
-        Assert.InRange(result.ConfidenceScore, 0.75, 0.9);
     }
 
     [Fact]
@@ -111,20 +170,20 @@ public sealed class DeterministicClassificationServiceTests
     public void PlannerOutput_RemainsDeterministicForSameInputs()
     {
         var root = CreateTempDirectory();
-        var codePath = Path.Combine(root, "app.cs");
-        var docPath = Path.Combine(root, "readme.txt");
-        File.WriteAllText(codePath, "class App { }", Encoding.UTF8);
-        File.WriteAllText(docPath, "hello", Encoding.UTF8);
+        var invoicePath = Path.Combine(root, "invoice.txt");
+        var reportPath = Path.Combine(root, "report.txt");
+        File.WriteAllText(invoicePath, "Invoice Number: 10\nBill To: Co\nSubtotal: 12.00\nTax: 1.00\nAmount Due: $13.00\nTotal: $13.00", Encoding.UTF8);
+        File.WriteAllText(reportPath, "# Executive Summary\n# Introduction\n# Methodology\n# Results\n# Conclusion", Encoding.UTF8);
 
         var files = new List<ScannedFile>
         {
-            new() { SourcePath = codePath, RelativePath = "app.cs" },
-            new() { SourcePath = docPath, RelativePath = "readme.txt" }
+            new() { SourcePath = invoicePath, RelativePath = "invoice.txt" },
+            new() { SourcePath = reportPath, RelativePath = "report.txt" }
         };
         var classifications = new List<ClassificationResult>
         {
-            _service.Classify(codePath),
-            _service.Classify(docPath)
+            _service.Classify(invoicePath),
+            _service.Classify(reportPath)
         };
         var planner = new DeterministicOrganizationPlanner();
 
@@ -141,6 +200,12 @@ public sealed class DeterministicClassificationServiceTests
             Assert.Equal(first.Operations[i].ConfidenceScore, second.Operations[i].ConfidenceScore);
             Assert.Equal(first.Operations[i].ReasoningSummary, second.Operations[i].ReasoningSummary);
         }
+    }
+
+    private ClassificationResult ClassifyText(string fileName, string content)
+    {
+        var path = CreateTempFile(fileName, Encoding.UTF8.GetBytes(content));
+        return _service.Classify(path);
     }
 
     private static string CreateTempFile(string fileName, byte[] content)

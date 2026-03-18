@@ -7,10 +7,14 @@ namespace FileOrganizer.Core.Classification;
 public sealed class DeterministicClassificationService : IClassificationService
 {
     private readonly IExtractionService _extractionService;
+    private readonly IHeuristicDocumentClassifier _heuristicDocumentClassifier;
 
-    public DeterministicClassificationService(IExtractionService extractionService)
+    public DeterministicClassificationService(
+        IExtractionService extractionService,
+        IHeuristicDocumentClassifier? heuristicDocumentClassifier = null)
     {
         _extractionService = extractionService;
+        _heuristicDocumentClassifier = heuristicDocumentClassifier ?? new HeuristicDocumentClassifier();
     }
 
     public ClassificationResult Classify(string path)
@@ -36,8 +40,7 @@ public sealed class DeterministicClassificationService : IClassificationService
             var confidence = artifact.FileType.Confidence >= 0.9
                 ? artifact.FileType.Confidence
                 : Math.Max(artifact.FileType.Confidence, 0.75);
-
-            return new ClassificationResult
+            var result = new ClassificationResult
             {
                 FilePath = path,
                 DetectedType = detectedType,
@@ -49,11 +52,65 @@ public sealed class DeterministicClassificationService : IClassificationService
                 AnalysisStage = analysisStage,
                 ReasoningSummary = BuildReasoningSummary(artifact, detectedType, analysisStage)
             };
+
+            if (ShouldApplyHeuristics(artifact))
+            {
+                var heuristic = _heuristicDocumentClassifier.Classify(artifact);
+                if (heuristic.Matched && heuristic.ConfidenceScore > result.ConfidenceScore)
+                {
+                    return new ClassificationResult
+                    {
+                        FilePath = path,
+                        DetectedType = detectedType,
+                        SemanticCategory = heuristic.SemanticCategory,
+                        SuggestedFolder = FolderMapping.GetFolder(heuristic.SemanticCategory, detectedType),
+                        SuggestedFilename = originalFileName,
+                        ConfidenceScore = heuristic.ConfidenceScore,
+                        ReasoningSource = "Deterministic",
+                        AnalysisStage = "heuristic_content",
+                        ReasoningSummary = heuristic.ReasoningSummary
+                    };
+                }
+            }
+
+            return result;
         }
         catch
         {
             return CreateExtensionFallback(path, originalFileName, extension, null);
         }
+    }
+
+    private static bool ShouldApplyHeuristics(ExtractionArtifact artifact)
+    {
+        var category = artifact.FileType.Category;
+        if (category.Equals("TextDocument", StringComparison.OrdinalIgnoreCase)
+            || category.Equals("StructuredDocument", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!category.Equals("CodeFile", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var preview = artifact.Content.TextPreview;
+        if (string.IsNullOrWhiteSpace(preview))
+        {
+            return false;
+        }
+
+        var trimmed = preview.TrimStart();
+        return trimmed.StartsWith("{", StringComparison.Ordinal)
+            || trimmed.StartsWith("[", StringComparison.Ordinal)
+            || trimmed.StartsWith("<", StringComparison.Ordinal)
+            || preview.Contains("created_at", StringComparison.OrdinalIgnoreCase)
+            || preview.Contains("updated_at", StringComparison.OrdinalIgnoreCase)
+            || preview.Contains("connectionString", StringComparison.OrdinalIgnoreCase)
+            || preview.Contains("connection_string", StringComparison.OrdinalIgnoreCase)
+            || preview.Contains("port", StringComparison.OrdinalIgnoreCase)
+            || preview.Contains("host", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string DetermineAnalysisStage(ExtractionArtifact artifact)

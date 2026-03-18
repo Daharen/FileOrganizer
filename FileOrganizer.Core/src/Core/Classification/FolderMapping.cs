@@ -56,7 +56,13 @@ public static class FolderMapping
         new(StringComparer.OrdinalIgnoreCase)
         {
             ["Code"] = "Code",
+            ["Configuration"] = "Code/Config",
+            ["DataExport"] = "Data",
             ["Documents"] = "Documents",
+            ["Invoice"] = "Documents/Finance",
+            ["Notes"] = "Documents/Notes",
+            ["Report"] = "Documents/Reports",
+            ["Resume"] = "Documents/Career",
             ["Images"] = "Images",
             ["Audio"] = "Audio",
             ["Videos"] = "Videos",
