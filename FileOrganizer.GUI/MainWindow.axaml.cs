@@ -4,6 +4,7 @@ using Avalonia.Platform.Storage;
 using FileOrganizer.Core;
 using FileOrganizer.Core.Classification;
 using FileOrganizer.Core.Extraction;
+using FileOrganizer.Core.Renaming;
 using FileOrganizer.GUI.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -15,8 +16,9 @@ namespace FileOrganizer.GUI;
 public partial class MainWindow : Window
 {
     private readonly DirectoryScanner _scanner = new();
-    private readonly IClassificationService _classificationService = new DeterministicClassificationService(
-        new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor(), new PdfFileExtractor(), new OpenXmlContainerExtractor()])));
+    private readonly IExtractionService _extractionService = new ExtractionService(new FileTypeDetector(), new ExtractionDispatcher([new TextFileExtractor(), new PdfFileExtractor(), new OpenXmlContainerExtractor()]));
+    private readonly DeterministicClassificationService _classificationService;
+    private readonly IFilenameSuggestionService _filenameSuggestionService = new DeterministicFilenameSuggestionService();
     private readonly DeterministicOrganizationPlanner _planner = new();
     private readonly OperationPlanValidator _validator = new();
     private readonly OrganizationExecutor _executor;
@@ -31,6 +33,8 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        _classificationService = new DeterministicClassificationService(_extractionService);
+
         InitializeComponent();
         DataContext = new MainWindowViewModel();
 
@@ -97,11 +101,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        var classifications = _currentFiles
-            .Select(file => _classificationService.Classify(file.SourcePath))
-            .ToList();
+        var classifications = new List<ClassificationResult>(_currentFiles.Count);
+        var filenameSuggestions = new List<FilenameSuggestion>(_currentFiles.Count);
 
-        _currentPlan = _planner.GetOrganizationPlan(_currentFolder.Path.LocalPath, _currentFiles, classifications);
+        foreach (var file in _currentFiles)
+        {
+            var artifact = _extractionService.Extract(file.SourcePath);
+            var classification = _classificationService.Classify(file.SourcePath, artifact);
+            classifications.Add(classification);
+            filenameSuggestions.Add(_filenameSuggestionService.Suggest(file.SourcePath, classification, artifact));
+        }
+
+        _currentPlan = _planner.GetOrganizationPlan(_currentFolder.Path.LocalPath, _currentFiles, classifications, filenameSuggestions);
         _currentValidatedPlan = _validator.Validate(_currentFolder.Path.LocalPath, _currentPlan);
 
         var planListBox = this.FindControl<ListBox>("PlanListBox");

@@ -27,7 +27,23 @@ public sealed class DeterministicClassificationService : IClassificationService
         try
         {
             var artifact = _extractionService.Extract(path);
-            var detectedType = string.IsNullOrWhiteSpace(artifact.FileType.Category) ? "Unknown" : artifact.FileType.Category;
+            return Classify(path, artifact);
+        }
+        catch
+        {
+            return CreateExtensionFallback(path, originalFileName, extension, null);
+        }
+    }
+
+    public ClassificationResult Classify(string path, ExtractionArtifact artifact)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(artifact);
+
+        var originalFileName = Path.GetFileName(path);
+        var extension = Path.GetExtension(path);
+
+        var detectedType = string.IsNullOrWhiteSpace(artifact.FileType.Category) ? "Unknown" : artifact.FileType.Category;
             var semanticCategory = FolderMapping.GetSemanticCategoryForDetectedType(detectedType);
             var shouldFallback = !artifact.Status.Success || semanticCategory.Equals("Unclassified", StringComparison.OrdinalIgnoreCase);
 
@@ -73,12 +89,7 @@ public sealed class DeterministicClassificationService : IClassificationService
                 }
             }
 
-            return result;
-        }
-        catch
-        {
-            return CreateExtensionFallback(path, originalFileName, extension, null);
-        }
+        return result;
     }
 
     private static bool ShouldApplyHeuristics(ExtractionArtifact artifact)
