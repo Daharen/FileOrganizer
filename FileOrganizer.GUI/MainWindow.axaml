@@ -1,13 +1,15 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:FileOrganizer.GUI.ViewModels"
         x:Class="FileOrganizer.GUI.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
         Width="1000"
-        Height="700"
+        Height="900"
         MinWidth="900"
-        MinHeight="600"
+        MinHeight="700"
         Title="File Organizer">
 
-  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="16">
     <StackPanel Grid.Row="0"
                 Orientation="Horizontal"
                 Spacing="8">
@@ -37,7 +39,69 @@
                Text="Select a folder to begin."
                TextWrapping="Wrap" />
 
-    <Grid Grid.Row="2"
+    <Border Grid.Row="2"
+            Margin="0,0,0,12"
+            Padding="12"
+            BorderBrush="#666666"
+            BorderThickness="1"
+            CornerRadius="6">
+      <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+        <TextBlock Grid.Row="0"
+                   FontSize="16"
+                   FontWeight="Bold"
+                   Text="Provider Settings" />
+
+        <ItemsControl Grid.Row="1"
+                      ItemsSource="{Binding ProviderSettings}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ProviderSettingsItemViewModel">
+              <Border Margin="0,0,0,8"
+                      Padding="12"
+                      BorderBrush="#444444"
+                      BorderThickness="1"
+                      CornerRadius="4">
+                <Grid ColumnDefinitions="180,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                  <TextBlock Grid.Row="0" Grid.ColumnSpan="3" FontWeight="Bold" Text="{Binding DisplayName}" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="API Key" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding ApiKey}" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Base URL" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding BaseUrl}" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Model" />
+                  <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding ModelName}" />
+
+                  <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Vertical" Spacing="4">
+                    <CheckBox Content="Enabled" IsChecked="{Binding Enabled}" />
+                    <CheckBox Content="Persist locally" IsChecked="{Binding PersistLocally}" />
+                    <CheckBox Content="Export to user environment" IsChecked="{Binding ExportToUserEnvironment}" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Vertical" Spacing="4">
+                    <TextBlock FontWeight="SemiBold" Text="Resolved Source" />
+                    <TextBlock Text="{Binding ResolvedSource}" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Vertical" Spacing="4">
+                    <TextBlock FontWeight="SemiBold" Text="Credential Available" />
+                    <CheckBox IsEnabled="False" IsChecked="{Binding CredentialAvailable}" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+          <Button Content="Load Provider Settings" Command="{Binding LoadSettingsCommand}" />
+          <Button Content="Save Provider Settings" Command="{Binding SaveSettingsCommand}" />
+          <TextBlock VerticalAlignment="Center" Text="{Binding ProviderSettingsStatus}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="3"
           ColumnDefinitions="*,*"
           ColumnSpacing="12">
 
@@ -71,7 +135,7 @@
     </Grid>
 
     <TextBlock x:Name="SummaryTextBlock"
-               Grid.Row="3"
+               Grid.Row="4"
                Margin="0,12,0,0"
                Text="Ready."
                TextWrapping="Wrap" />
